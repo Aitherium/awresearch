@@ -13,15 +13,5 @@
     "awreason",
     "awgraph"
   ],
-  "includes": [],
-  "metrics": {
-    "files": {
-      "value": 21,
-      "as_of": "2026-08-21T02:25:55-07:00"
-    },
-    "tests": {
-      "value": 3,
-      "as_of": "2026-08-21T02:25:55-07:00"
-    }
-  }
+  "includes": []
 }
