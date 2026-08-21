@@ -1,0 +1,77 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "awresearch"
+version = "0.1.0"
+description = "Ask a research question, get a cited report you can check."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Aitherium", email = "team@aitherium.com" }]
+keywords = ["research", "ai", "agent", "sources", "citations"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "awdk>=0.2.0",           # ReAct agent loop, memory, metering
+    "ddgs>=6.0",              # DuckDuckGo web search
+    "httpx>=0.25.0",          # Async HTTP
+    "lxml>=4.9.0",            # HTML parsing
+    "pyyaml>=6.0",            # Config
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21.0",
+]
+docs = [
+    "reportlab>=4.0",         # PDF reports
+    "python-docx>=1.1",       # DOCX reports
+]
+tokens = [
+    "tiktoken>=0.7",          # Token counting (optional, falls back to estimate)
+]
+
+[project.scripts]
+awresearch = "awresearch.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/Aitherium/awresearch"
+Documentation = "https://github.com/Aitherium/awresearch#readme"
+Repository = "https://github.com/Aitherium/awresearch.git"
+Issues = "https://github.com/Aitherium/awresearch/issues"
+
+[tool.setuptools]
+packages = ["awresearch"]
+license-files = ["LICENSE"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+# The monorepo quality gate runs `ruff --isolated` from the REPO ROOT, where
+# first-party detection cannot see this directory, so it files `awresearch` as
+# third-party. Rooted here, ruff would instead detect it as first-party and
+# demand the OPPOSITE import layout -- two invocations giving mutually
+# exclusive verdicts on the same file, each `--fix` undoing the other.
+# Measured: that is exactly what happened, twice, before this line existed.
+# Empty `src` disables path-based detection so the local run agrees with the
+# gate that actually blocks a merge.
+src = []
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = ["E501", "E402", "E741"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

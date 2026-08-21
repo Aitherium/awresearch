@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1",
+  "name": "awresearch",
+  "description": "Ask a research question, get a cited report you can check.",
+  "url": "https://aitherium.github.io/awresearch/",
+  "repository": "https://github.com/Aitherium/awresearch",
+  "kind": "tool",
+  "status": "planned",
+  "adopt": "Ask one question and get back a report where every claim carries the source it came from.",
+  "pairs_with": [
+    "awfind",
+    "awbrowse",
+    "awreason",
+    "awgraph"
+  ],
+  "includes": []
+}
