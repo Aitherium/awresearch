@@ -17,6 +17,11 @@ logger = logging.getLogger("awresearch.cli")
 
 def main():
     """Main CLI entry point."""
+    # GENERATED doctor intercept (gen_aw_doctor.py) -- do not edit
+    _dv = locals().get("argv")
+    if (_dv if _dv is not None else __import__("sys").argv[1:])[:1] == ["doctor"]:
+        from ._doctor import report
+        return report()
     parser = argparse.ArgumentParser(
         prog="awresearch",
         description="Ask a research question, get a cited report you can check.",
