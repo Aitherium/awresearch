@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "1",
+  "name": "awresearch",
+  "description": "Ask a research question, get a cited report you can check.",
+  "url": "https://aitherium.github.io/awresearch/",
+  "repository": "https://github.com/Aitherium/awresearch",
+  "kind": "tool",
+  "status": "public",
+  "adopt": "Ask one question and get back a report where every claim carries the source it came from.",
+  "pairs_with": [
+    "awfind",
+    "awbrowse",
+    "awreason",
+    "awgraph"
+  ],
+  "includes": [],
+  "metrics": {
+    "files": {
+      "value": 22,
+      "as_of": "2026-08-22T18:47:19-07:00"
+    },
+    "tests": {
+      "value": 3,
+      "as_of": "2026-08-22T18:47:19-07:00"
+    }
+  }
+}
