@@ -406,103 +406,80 @@ li{margin:0 0 4px}
 <pre><code>```bash
 pip install awresearch
 </code></pre>
-<p>Requires Python 3.10+, <code>awdk</code> (the agent engine), and an LLM provider (Anthropic / OpenAI / DeepSeek / local Ollama).</p>
+<p>Requires Python 3.10+ and <code>awdk</code> (the agent engine). The LLM is whatever awdk resolves on your machine — the backend <code>adk setup</code> configured, a provider key in the environment (<code>ANTHROPIC_API_KEY</code>, <code>OPENAI_API_KEY</code>, <code>DEEPSEEK_API_KEY</code>), or a local runtime such as Ollama. awresearch never picks a provider or reads a key itself.</p>
 <h2>Quick start</h2>
 
-<pre><code>```python
-from awdk.agent import AitherAgent
-from awdk.identity import Identity
-from awdk.memory import Memory
-from awresearch.api import Researcher, Report
-
-# Set up your LLM key in the environment (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)
-
-# Create a Researcher with an awdk agent
-identity = Identity(name=&quot;researcher&quot;, description=&quot;Research analyst&quot;)
-memory = Memory(db_path=&quot;.data/researcher.db&quot;, agent_name=&quot;researcher&quot;)
-agent = AitherAgent(name=&quot;researcher&quot;, identity=identity, memory=memory)
-
-researcher = Researcher(llm_backend=agent.llm)
-
-# Ask a question
-report = await researcher.research(
-    &quot;What are the latest breakthroughs in solid-state batteries?&quot;,
-    depth=&quot;standard&quot;,
-)
-
-# Check the results
-print(f&quot;Claims: {len(report.claims)}&quot;)
-print(f&quot;Sources: {len(report.sources)}&quot;)
-print(f&quot;All claims sourced? {all(c.is_sourced for c in report.claims)}&quot;)
-
-# Export as Markdown with citations
-markdown = report.markdown()
-print(markdown)
-
-# Or as structured data
-import json
-print(json.dumps(report.to_dict(), indent=2))
+<pre><code>```bash
+awresearch --question &quot;What is WebGPU and which browsers ship it?&quot;
+awresearch --question &quot;...&quot; --depth deep --output json --out-file report.json
 </code></pre>
+
+
+<pre><code>```python
+import asyncio
+from awresearch import Researcher
+
+report = asyncio.run(Researcher().research(
+    &quot;What is WebGPU and which browsers ship it?&quot;, depth=&quot;standard&quot;))
+
+print(len(report.claims), &quot;claims,&quot;, len(report.sources), &quot;sources&quot;)
+print(report.validate())        # [] = every claim cites a real source or says why not
+print(report.markdown())        # summary + claims with [n] citations + source list
+</code></pre>
+<p><code>depth="standard"</code> is one pass: search the question, read the top pages, extract only claims those pages state. <code>depth="deep"</code> breaks the question into sub-questions, researches them in parallel, has an adversarial verifier try to refute every claim against its source text, then synthesizes.</p>
+<p>A claim cites a source only if that page was actually read during the run. A claim whose URL the model made up stays in the report with <code>unsourced_reason</code> saying so — it is never shown as cited.</p>
 <h2>API</h2>
-<h3><code>Researcher(llm_backend, search_backend=None, artifacts_dir=None)</code></h3>
-<p>Configurable research agent.</p>
-<p><strong>Args:</strong>
-- <code>llm_backend</code> — an awdk LLMRouter or compatible (required)
-- <code>search_backend</code> — callable returning search results. Defaults to AitherSearch (multi-engine web search)
-- <code>artifacts_dir</code> — where to store temporary files. Defaults to <code>AITHER_DATA_DIR</code> env var</p>
-<h3><code>async Researcher.research(question, depth="standard", max_sources=10) -&gt; Report</code></h3>
-<p>Research a question and return a cited report.</p>
-<p><strong>Args:</strong>
-- <code>question</code> — the research question
-- <code>depth</code> — <code>"standard"</code> (one pass) or <code>"deep"</code> (iterative multi-angle)
-- <code>max_sources</code> — maximum sources to fetch (default: 10)</p>
-<h3><code>Report</code></h3>
-<p>Result of a research session: claims, sources, validation.</p>
-<p><strong>Attributes:</strong>
-- <code>question</code> — the original question
-- <code>claims</code> — list of <code>Claim</code> objects
-- <code>sources</code> — list of <code>Source</code> objects (each referenced by claims)
-- <code>research_depth</code> — "standard" or "deep"</p>
-<p><strong>Methods:</strong>
-- <code>validate()</code> → list of validation issues (empty = valid)
-- <code>to_dict()</code> → JSON-serializable dict
-- <code>markdown()</code> → Markdown report with citations</p>
-<h3><code>Claim</code></h3>
-<p>A single claim in the report.</p>
-<p><strong>Attributes:</strong>
-- <code>text</code> — the claim
-- <code>sources</code> — list of 1-based indices into <code>Report.sources</code>
-- <code>is_sourced</code> — True if has at least one source
-- <code>unsourced_reason</code> — if unsourced, why (e.g., "too general to cite")</p>
-<h3><code>Source</code></h3>
-<p>A retrieved source: URL, title, freshness/trust metadata.</p>
-<p><strong>Attributes:</strong>
-- <code>url</code> — the source URL
-- <code>title</code> — page title
-- <code>retrieved_at</code> — ISO timestamp
-- <code>domain</code> — domain name
-- <code>authority</code> — domain authority score (0-1)
-- <code>freshness</code> — freshness score (0-1, based on publication date)
-- <code>trust</code> — combined trust score</p>
-<h2>Configuration</h2>
-<p>Set via environment variables:</p>
+<h3><code>Researcher(llm_backend=None, search_backend=None, artifacts_dir=None, model=None, graph=None)</code></h3>
 <ul>
-<li><code>AWRESEARCH_SEARCH_BACKEND</code> — search engine ("ddgs", "searxng", etc.). Default: multi-engine (AitherSearch)</li>
-<li><code>AITHER_DATA_DIR</code> — where to store artifacts. Default: temp directory</li>
+<li><code>llm_backend</code> — an awdk <code>LLMRouter</code> or any object with async <code>chat</code>/<code>chat_stream</code>. None = awdk's default routing; it is probed with one tiny call first, and if the backend refuses its default model (tier, auth, unknown model) the other models it lists are tried in order.</li>
+<li><code>search_backend</code> — optional <code>callable(query) -&gt; [{"title", "url", "snippet"}]</code> (sync or async). Default: keyless multi-engine web search.</li>
+<li><code>artifacts_dir</code> — where the run's knowledge graph and memory live. None = a temporary directory removed after the run.</li>
+<li><code>model</code> — model name to request. None = the backend's default.</li>
+<li><code>graph</code> — optional knowledge-graph object. None = awdk <code>GraphMemory</code> under <code>artifacts_dir</code>.</li>
 </ul>
-<h2>Limitations</h2>
+<p>After a run, <code>researcher.model_used</code> is the model that answered and <code>researcher.last_usage</code> holds token/search/page counts.</p>
+<h3><code>async Researcher.research(question, depth="standard", max_sources=10, on_event=None) -&gt; Report</code></h3>
 <ul>
-<li><strong>Real API calls.</strong> Every search, every page fetch costs an HTTP request. Research is not free.</li>
-<li><strong>Sources can be wrong.</strong> This tool cross-checks claims against retrieved pages, but cannot verify that pages themselves are accurate. It is not a fact-checker.</li>
-<li><strong>Paywalls and access.</strong> Some sources are behind paywalls or require authentication. The tool retrieves what is publicly accessible.</li>
-<li><strong>Speed.</strong> Real research takes time. A deep-research turn may take 30–60 seconds per question.</li>
+<li><code>depth</code> — <code>"standard"</code> or <code>"deep"</code>.</li>
+<li><code>max_sources</code> — page-read budget for the run.</li>
+<li><code>on_event</code> — optional callback receiving <code>{"phase": str, "message": str}</code> progress events.</li>
+</ul>
+<p>Raises <code>LLMUnavailableError</code> (one-line message) when no LLM backend answers, and <code>ValueError</code> for an empty question or unknown depth.</p>
+<h3><code>Report</code></h3>
+<ul>
+<li><code>question</code>, <code>research_depth</code></li>
+<li><code>claims</code> — list of <code>Claim</code></li>
+<li><code>sources</code> — list of <code>Source</code>; claims cite them by 1-based index</li>
+<li><code>raw_response</code> — the synthesized answer, its <code>[n]</code> citations renumbered to match <code>sources</code></li>
+<li><code>validate()</code> → list of issues (empty = valid) · <code>to_dict()</code> → JSON-ready dict · <code>markdown()</code> → cited Markdown</li>
+</ul>
+<h3><code>Claim</code></h3>
+<ul>
+<li><code>text</code>, <code>sources</code> (1-based indices into <code>Report.sources</code>), <code>is_sourced</code>, <code>unsourced_reason</code></li>
+</ul>
+<h3><code>Source</code></h3>
+<ul>
+<li><code>url</code>, <code>title</code>, <code>retrieved_at</code> (ISO, when the report was built), <code>domain</code>, <code>authority</code> (0-1), <code>freshness</code> (0-1), <code>trust</code></li>
 </ul>
 <h2>CLI</h2>
 
-<pre><code>```bash
-# Not yet implemented. See awresearch Python API above.
-awresearch --question &quot;Research question here&quot; --output markdown
+<pre><code>```
+awresearch --question Q [--depth standard|deep] [--output markdown|json]
+           [--out-file F] [--max-sources N] [--model M] [--events] [-v]
 </code></pre>
+<ul>
+<li><strong>stdout</strong> — the report (Markdown by default, or JSON); empty when <code>--out-file</code> is given.</li>
+<li><strong>stderr</strong> — with <code>--events</code>, one JSON object per line per progress step:
+  <code>{"phase": "search", "message": "..."}</code>. Phases: <code>connect</code>, <code>decompose</code>, <code>research</code>, <code>search</code>, <code>read</code>, <code>verify</code>, <code>synthesize</code>, <code>report</code>. Lines that are not JSON are diagnostics. On failure: a single line <code>awresearch: &lt;reason&gt;</code>.</li>
+<li><strong>exit</strong> — <code>0</code> report written · <code>1</code> no LLM reachable or the run failed · <code>2</code> usage error.</li>
+</ul>
+<h2>Limitations</h2>
+<ul>
+<li><strong>Real calls.</strong> Every search, page fetch and LLM call is real. A standard run is a handful of LLM calls; a deep run is roughly ten.</li>
+<li><strong>Sources can be wrong.</strong> Claims are checked against the retrieved pages, not against the world.</li>
+<li><strong>Paywalls.</strong> Only publicly reachable pages are read.</li>
+<li><strong>Speed.</strong> Expect tens of seconds to minutes, dominated by the LLM backend.</li>
+</ul>
 <h2>Architecture</h2>
 <p>awresearch is built on:</p>
 <ul>

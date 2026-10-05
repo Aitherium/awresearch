@@ -12,7 +12,7 @@ Public API:
 
 from __future__ import annotations
 
-from .api import Claim, Report, Researcher, Source
+from .api import Claim, LLMUnavailableError, Report, Researcher, Source
 
 __version__ = "0.1.0"
 
@@ -21,4 +21,5 @@ __all__ = [
     "Report",
     "Claim",
     "Source",
+    "LLMUnavailableError",
 ]

@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 
 from adk.llm.base import Message
 
@@ -143,17 +144,21 @@ def _loads_tool(result: str):
 # Stage 2 — one sub-researcher (search -> read -> focused extraction)
 # ─────────────────────────────────────────────────────────────────────────────
 async def _research_subq(agent, session, subq: str, i: int, n: int,
-                         sem: asyncio.Semaphore, on_event) -> list[dict]:
+                         sem: asyncio.Semaphore, on_event,
+                         max_urls: int = _MAX_URLS_PER_SUBQ) -> list[dict]:
     """Search the sub-question, read the top pages, and extract ONLY source-backed
     claims. Persists each finding through the real save_finding tool (dedup + graph
-    + stable citation). Returns the findings tagged with their sub-question."""
+    + stable citation). Returns the findings tagged with their sub-question.
+
+    ``max_urls`` bounds how many result pages are read for this sub-question."""
+    max_urls = max(1, int(max_urls))
     async with sem:
         await _emit(on_event, {"type": "stage", "stage": "research", "status": "start",
                                "subq": subq, "index": i, "total": n})
 
         search = _loads_tool(await _exec(agent, on_event, "web_search",
-                                         {"query": subq, "limit": 6}))
-        urls = [r["url"] for r in search.get("results", []) if r.get("url")][:_MAX_URLS_PER_SUBQ]
+                                         {"query": subq, "limit": max(6, max_urls)}))
+        urls = [r["url"] for r in search.get("results", []) if r.get("url")][:max_urls]
 
         pages: list[dict] = []
         if urls:
@@ -203,12 +208,99 @@ async def _research_subq(agent, session, subq: str, i: int, n: int,
         return findings
 
 
+def _record_findings(session, findings: list[dict]) -> None:
+    """Expose the findings the answer is built from on the session, so a caller
+    can turn them into claims with citations. Never raises."""
+    try:
+        session.findings = list(findings)
+    except Exception as exc:  # noqa: BLE001 -- a read-only session must not break the turn
+        logger.debug("could not record findings on the session: %s", exc)
+
+
+async def _synthesize(agent, session, question: str, verified: list[dict], on_event) -> str:
+    """Write the cited answer from ``verified`` findings (streamed, with a
+    non-streamed fallback). Returns the stripped answer text ('' on failure)."""
+    await _emit(on_event, {"type": "stage", "stage": "synthesize", "status": "start",
+                           "findings": len(verified)})
+
+    # Number findings off the STABLE citation index so [n] matches the sources panel.
+    block_lines: list[str] = []
+    for f in verified:
+        cite_n = session.cite("", f["source_url"]) if f.get("source_url") else 0
+        if cite_n:
+            block_lines.append(f"[{cite_n}] {f['claim']}")
+        else:
+            block_lines.append(f"- {f['claim']}")
+    findings_block = "\n".join(block_lines) if block_lines else "(no verified findings)"
+
+    synth_sys = (
+        "Write a precise, well-structured answer to the user's question using ONLY "
+        "the verified findings below. Use inline [n] citations matching the numbers "
+        "provided — never renumber them. Note any contradictions or gaps explicitly. "
+        "Do not invent facts, numbers, or sources. If the findings are insufficient, "
+        "say so plainly."
+    )
+    synth_user = (f"Question: {question}\n\nVerified findings (cite as [n]):\n"
+                  f"{findings_block}\n\nWrite the answer now.")
+
+    answer = ""
+    streamed = False
+    try:
+        async for chunk in agent.llm.chat_stream(
+            [Message(role="system", content=synth_sys),
+             Message(role="user", content=synth_user)],
+            effort=2,
+        ):
+            piece = getattr(chunk, "content", "") or ""
+            if piece:
+                streamed = True
+                answer += piece
+                await _emit(on_event, {"type": "token", "text": piece})
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("deep_mode synth stream failed: %s", exc)
+
+    if not answer.strip():
+        # Fallback: non-streamed single call, emitted as one token.
+        answer = await _llm(agent, synth_sys, synth_user, effort=2)
+        if answer:
+            await _emit(on_event, {"type": "token", "text": answer})
+        streamed = False
+
+    await _emit(on_event, {"type": "stage", "stage": "synthesize", "status": "done"})
+    logger.debug("synthesis streamed=%s", streamed)
+
+    return answer.strip()
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # The pipeline
 # ─────────────────────────────────────────────────────────────────────────────
-async def run_deep_research(agent, session, question: str, on_event=None):
+async def run_standard_research(agent, session, question: str, on_event=None,
+                                max_sources: int = _MAX_URLS_PER_SUBQ):
+    """One pass: search the question itself, read the top ``max_sources`` pages,
+    extract source-backed claims, then synthesize. No decomposition, no
+    adversarial verify. The findings are left on ``session.findings``. Returns
+    (answer_text, ['research','synthesize'])."""
+    sem = asyncio.Semaphore(1)
+    try:
+        findings = await _research_subq(agent, session, question, 0, 1, sem, on_event,
+                                        max_urls=max_sources)
+    except Exception as exc:  # noqa: BLE001 — degrade to "no findings", never raise
+        logger.debug("standard pass failed: %s", exc)
+        findings = []
+    _record_findings(session, findings)
+    answer = await _synthesize(agent, session, question, findings, on_event)
+    return answer, ["research", "synthesize"]
+
+
+async def run_deep_research(agent, session, question: str, on_event=None,
+                            max_sources: int | None = None):
     """Drive the four-role deep-research pipeline. Returns
-    (answer_text, ['decompose','research','verify','synthesize'])."""
+    (answer_text, ['decompose','research','verify','synthesize']).
+
+    ``max_sources`` (optional) is a total page-read budget split across the
+    sub-questions; unset keeps the per-sub-question default. The verified
+    findings are left on ``session.findings``."""
 
     # ── 1) DECOMPOSE (director) ──────────────────────────────────────────────
     await _emit(on_event, {"type": "stage", "stage": "decompose", "status": "start"})
@@ -250,8 +342,11 @@ async def run_deep_research(agent, session, question: str, on_event=None):
     # ── 2) FAN-OUT sub-researchers (parallel, bounded) ───────────────────────
     sem = asyncio.Semaphore(_FANOUT)
     n = len(subqs)
+    per_subq = _MAX_URLS_PER_SUBQ
+    if max_sources:
+        per_subq = min(_MAX_URLS_PER_SUBQ, max(1, math.ceil(int(max_sources) / n)))
     batches = await asyncio.gather(
-        *[_research_subq(agent, session, sq, i, n, sem, on_event)
+        *[_research_subq(agent, session, sq, i, n, sem, on_event, max_urls=per_subq)
           for i, sq in enumerate(subqs)],
         return_exceptions=True,
     )
@@ -324,54 +419,9 @@ async def run_deep_research(agent, session, question: str, on_event=None):
                            "supported": len(verified), "dropped": dropped})
 
     # ── 4) SYNTHESIZE (streamed, cited) ──────────────────────────────────────
-    await _emit(on_event, {"type": "stage", "stage": "synthesize", "status": "start",
-                           "findings": len(verified)})
-
-    # Number findings off the STABLE citation index so [n] matches the sources panel.
-    block_lines: list[str] = []
-    for f in verified:
-        cite_n = session.cite("", f["source_url"]) if f.get("source_url") else 0
-        if cite_n:
-            block_lines.append(f"[{cite_n}] {f['claim']}")
-        else:
-            block_lines.append(f"- {f['claim']}")
-    findings_block = "\n".join(block_lines) if block_lines else "(no verified findings)"
-
-    synth_sys = (
-        "Write a precise, well-structured answer to the user's question using ONLY "
-        "the verified findings below. Use inline [n] citations matching the numbers "
-        "provided — never renumber them. Note any contradictions or gaps explicitly. "
-        "Do not invent facts, numbers, or sources. If the findings are insufficient, "
-        "say so plainly."
-    )
-    synth_user = (f"Question: {question}\n\nVerified findings (cite as [n]):\n"
-                  f"{findings_block}\n\nWrite the answer now.")
-
-    answer = ""
-    streamed = False
-    try:
-        async for chunk in agent.llm.chat_stream(
-            [Message(role="system", content=synth_sys),
-             Message(role="user", content=synth_user)],
-            effort=2,
-        ):
-            piece = getattr(chunk, "content", "") or ""
-            if piece:
-                streamed = True
-                answer += piece
-                await _emit(on_event, {"type": "token", "text": piece})
-    except Exception as exc:  # noqa: BLE001
-        logger.debug("deep_mode synth stream failed: %s", exc)
-
-    if not answer.strip():
-        # Fallback: non-streamed single call, emitted as one token.
-        answer = await _llm(agent, synth_sys, synth_user, effort=2)
-        if answer:
-            await _emit(on_event, {"type": "token", "text": answer})
-        streamed = False
-
-    await _emit(on_event, {"type": "stage", "stage": "synthesize", "status": "done"})
-    logger.info("deep mode: %d subqs, %d findings, %d verified, streamed=%s",
-                len(subqs), len(findings), len(verified), streamed)
+    _record_findings(session, verified)
+    answer = await _synthesize(agent, session, question, verified, on_event)
+    logger.info("deep mode: %d subqs, %d findings, %d verified",
+                len(subqs), len(findings), len(verified))
 
     return answer.strip(), ["decompose", "research", "verify", "synthesize"]

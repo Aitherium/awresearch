@@ -45,6 +45,8 @@ class ResearchSession:
     sources: list[dict] = field(default_factory=list)  # ordered, for citations
     contradictions: list[dict] = field(default_factory=list)  # cross-source conflicts
     _contra_keys: set[str] = field(default_factory=set)
+    # The findings the last answer was built from: [{"claim", "source_url", ...}].
+    findings: list[dict] = field(default_factory=list)
 
     def cite(self, title: str, url: str) -> int:
         """Register a source and return its 1-based citation number.
