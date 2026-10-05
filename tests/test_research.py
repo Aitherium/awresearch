@@ -17,6 +17,7 @@ pytest.importorskip("adk")
 
 from awresearch import api, cli, tools  # noqa: E402
 from awresearch.api import LLMUnavailableError, Researcher  # noqa: E402
+from awresearch.ledger import SavingsLedger  # noqa: E402
 
 URL_A = "https://alpha.example.org/webgpu"
 URL_B = "https://beta.example.com/browsers"
@@ -209,6 +210,14 @@ async def test_refused_default_model_falls_back_to_a_listed_model(monkeypatch):
     report = await r.research("What is WebGPU?")
     assert r.model_used == "small"
     assert report.claims
+
+
+def test_default_llm_honours_adk_config(monkeypatch):
+    """The default router carries adk's Config, so its documented knobs
+    (AITHER_LLM_BACKEND, `adk setup`) apply exactly as for an AitherAgent."""
+    monkeypatch.setenv("AITHER_LLM_BACKEND", "vllm")
+    llm = api._default_llm("m1", ledger=SavingsLedger())
+    assert llm._config is not None and llm._config.llm_backend == "vllm"
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────

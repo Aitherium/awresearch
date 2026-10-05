@@ -189,14 +189,18 @@ def _default_llm(model: Optional[str], ledger: Any) -> Any:
     """adk's LLMRouter with default auto-detection (metered into ``ledger``).
 
     No provider, URL or key is chosen here: adk resolves the backend from its own
-    configuration (``adk setup``, env keys, a local runtime). Module-level so tests
-    can substitute it.
+    configuration (``adk setup``, env such as ``AITHER_LLM_BACKEND``, provider keys,
+    a local runtime) -- the same ``Config.from_env()`` an ``AitherAgent`` built
+    without an ``llm`` uses. Module-level so tests can substitute it.
     """
+    from adk.config import Config
+
     from .ledger import LedgerRouter
 
+    config = Config.from_env()
     if model:
-        return LedgerRouter(model=model, ledger=ledger)
-    return LedgerRouter(ledger=ledger)
+        return LedgerRouter(model=model, config=config, ledger=ledger)
+    return LedgerRouter(config=config, ledger=ledger)
 
 
 async def _ping(llm: Any) -> Optional[str]:
