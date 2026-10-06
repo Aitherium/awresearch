@@ -1,0 +1,37 @@
+# awresearch
+
+> Ask a research question, get a cited report you can check.
+
+An agent asked to research something returns a fluent report whose citations were never read. The failure is not a refusal and not an error — it is a plausible document, which is the most expensive possible output, because checking it costs more than writing it did.
+
+## Install
+
+```
+pip install awresearch
+```
+
+## In Claude Code
+
+- skill: `/awresearch`
+
+## Use it in 30 seconds
+
+Ask one question and get back a report where every claim carries the source it came from.
+
+## Composes with
+
+- [awfind](https://aitherium.github.io/awfind/) — A portable search client — query, results, ranking.
+- [awbrowse](https://aitherium.github.io/awbrowse/) — A portable browser client — navigate, console, network, DOM, screenshot.
+- [awreason](https://aitherium.github.io/awreason/) — A portable reasoning client — sessions, phases, thoughts, and the chain that produced the answer.
+- [awgraph](https://aitherium.github.io/awgraph/) — A semantic code graph for agents — AST + tree-sitter, call graphs.
+- [awgym](https://aitherium.github.io/awgym/) — An ARC training gym — a game a world model can watch, and six roles that play through it.
+
+## Where it lives
+
+- Repo: https://github.com/Aitherium/awresearch
+- Docs: https://aitherium.github.io/awresearch/
+- Manifest (keys + the one-line adoption story): https://aitherium.github.io/awresearch/aither-manifest.json
+
+This repository is mirrored from the AitherOS monorepo by `.github/workflows/sync-awresearch.yml`; hand edits made here are overwritten on the next sync — change the source instead.
+
+Everything Aitherium, in one file for agents: https://aitherium.com/llms.txt
