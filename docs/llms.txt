@@ -10,10 +10,6 @@ An agent asked to research something returns a fluent report whose citations wer
 pip install awresearch
 ```
 
-## In Claude Code
-
-- skill: `/awresearch`
-
 ## Use it in 30 seconds
 
 Ask one question and get back a report where every claim carries the source it came from.
